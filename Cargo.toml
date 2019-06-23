@@ -1,0 +1,2 @@
+[dependencies]
+ed25519-dalek = {git = "https://github.com/namuyan/ed25519-dalek"}
