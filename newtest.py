@@ -11,7 +11,7 @@ import networkx
 from networkgraph import generate_graph, Node
 from processdelaycsv import gen_delay_map
 
-
+import os
 
 def simulate():
 	delay_map = gen_delay_map()
@@ -51,25 +51,38 @@ def simulate():
 
 	env.run()
 
-	print('test chains')
-	for node in nodes:
-		print(f'node {node.id} chain as follow')
-		print(f'{[node.chain.chain[round].block_hash for round in node.chain.chain]}')
 
 
 def simu(num_nodes):
 
 	delay_map = gen_delay_map()
-	print(delay_map[0][1])
+	
 	env = simpy.Environment()
 
 	ct_tags = [i for i in range(0,28)]
 
 	nodes = []
 	print('initialize network')
-	graph_nodes = generate_graph(num_nodes,5)
+	graph_nodes = generate_graph(num_nodes,8)
+	filename=f'Netgraph.txt'
+	file_path = 'RoundStatus/' + filename
+	dirpath = os.path.dirname(os.path.abspath(__file__))
+	folder_path = os.path.join(dirpath, file_path)
+	with open(folder_path,"a+") as f:
+		for node in graph_nodes:
+			f.write(f'{node.id},{node.peers} \n')
+	print('network created')
 	block_delays = generate_block_delays(num_nodes)
+	filename=f'blockdelays.txt'
+	delay_path = 'RoundStatus/'+filename
+	folder_path = os.path.join(dirpath, delay_path)
+	with open(folder_path,"a+") as f:
+		for delay in block_delays:
+			
+			f.write(f'{delay} \n')
+	
 	for node in graph_nodes:
+		
 		newNode = AlgoNode(env,node.id,True,2000)
 
 		#
@@ -89,7 +102,7 @@ def simu(num_nodes):
 	print('network created')
 	total = 0
 	for node in nodes:
-		tokens = 260000
+		tokens = 100000
 		node.add_tokens(tokens)
 		total+=tokens
 
@@ -132,22 +145,4 @@ def simu(num_nodes):
 
 simu(1000)
 
-# random_network = generate_graph(200,4)
-# print('success')
-#
-# ids = random_network.nodes
-#
-#
-# for id in ids:
-# 	peers = set()
-# 	for edge in random_network.edges:
-# 		if edge[0] == id:
-# 			peers.add(edge[1])
-# 		elif edge[1] == id:
-# 			peers.add(edge[0])
-# 	node = AlgoNode(env,id,True,20000)
-#
-# 	for p in peers:
-# 		node.peers.append(p)
-#
-# 	nodes.append(node)
+
