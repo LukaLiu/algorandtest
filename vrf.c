@@ -1,9 +1,25 @@
 #include <stdio.h>
+#include <string.h>
 #include <sodium.h>
 
-uint8_t* hex_str_to_uint8(const char* string) {
+char* to_hex( char hex[], uint8_t bin[], size_t length )
+{
+    int i=0;
+    uint8_t *p0 = (uint8_t *)bin;
+    char *p1 = hex;
 
-    if (string == NULL)
+
+    for( i = 0; i < length; i++ ) {
+        snprintf( p1, 3, "%02x", *p0 );
+        p0 += 1;
+        p1 += 2;
+    }
+    //printf("");
+    return hex;
+}
+
+uint8_t* hex_str_to_uint8(const char* string) {
+   if (string == NULL)
         return NULL;
 
     size_t slength = strlen(string);
@@ -37,38 +53,22 @@ uint8_t* hex_str_to_uint8(const char* string) {
     return data;
 }
 
-char* to_hex( char hex[], const uint8_t bin[], size_t length )
-{
-    int i=0;
-    uint8_t *p0 = (uint8_t *)bin;
-    char *p1 = hex;
 
-
-    for( i = 0; i < length; i++ ) {
-        snprintf( p1, 3, "%02x", *p0 );
-        p0 += 1;
-        p1 += 2;
-    }
-    //printf("");
-    return hex;
-}
 
 //finished with generateing secret key
 char* new_sk(){
+    
     uint8_t public_key[crypto_sign_PUBLICKEYBYTES];
-    unsigned char secret_key[crypto_sign_SECRETKEYBYTES];
+    uint8_t secret_key[crypto_sign_SECRETKEYBYTES];
 
     static char shexbuf[2*crypto_sign_SECRETKEYBYTES+1];
-//    static char shexbuff[2*crypto_sign_PUBLICKEYBYTES+1];
     crypto_vrf_keypair(public_key, secret_key);
-    char* result="a";
-//    char* resultt;
+    char* result;
     result = to_hex(shexbuf, secret_key, crypto_sign_SECRETKEYBYTES);
-
+    
     return shexbuf;
 
 }
-
 //finsihed with getting public key using secret key
 char* sk_to_pk(unsigned char *sk){
     char* raw;
@@ -79,7 +79,6 @@ char* sk_to_pk(unsigned char *sk){
     char* result;
     result =to_hex(pkbuf, public_key,  crypto_vrf_PUBLICKEYBYTES);
     free(raw);
-//    printf("\nsk_to pk pkshexbuf: %s\n", pkbuf);
     return pkbuf;
 }
 
@@ -89,16 +88,16 @@ char* s_to_p(unsigned char *raw){
     crypto_vrf_sk_to_pk(public_key, raw);
     static char pkbuf[2*crypto_vrf_PUBLICKEYBYTES+1];
     char* result;
-    result =to_hex(pkbuf, public_key,  crypto_vrf_PUBLICKEYBYTES);
+    result = to_hex(pkbuf, public_key,  crypto_vrf_PUBLICKEYBYTES);
     free(raw);
-//    printf("\nsk_to pk pkshexbuf: %s\n", pkbuf);
+
     return pkbuf;
 }
 
 char* vrf_proof(const unsigned char *sk, const unsigned char *msg){
     unsigned long long msgle;
     msgle = strlen(msg);
-    char* rawsk="a";
+    char* rawsk;
    //rawsk = hex_str_to_uint8(sk);
     rawsk = hex_str_to_uint8(sk);
 //    unsigned char *testmsg = "0x9d";
@@ -110,14 +109,10 @@ char* vrf_proof(const unsigned char *sk, const unsigned char *msg){
 
 //    crypto_vrf_prove(testproof, rawsk, testmsg, testmsgle);
     char proofbuf[2*crypto_vrf_PROOFBYTES+1];
-//    char tproofbuf[2*crypto_vrf_PROOFBYTES+1];
+    
     to_hex(proofbuf, proof, crypto_vrf_PROOFBYTES);
-
-
-//    to_hex(tproofbuf, testproof, crypto_vrf_PROOFBYTES);
-//    printf("\nproof in vrf_proof: %s\n",proofbuf);
-//    printf("\ntestproof in vrf_proof: %s\n",tproofbuf);
-
+    
+    free(rawsk);
     return proofbuf;
 }
 
@@ -126,14 +121,15 @@ char* vrf_proof_to_hash(unsigned char* proof){
     rawproof = hex_str_to_uint8(proof);
 
     char*output[crypto_vrf_OUTPUTBYTES];
-    char flag = "False";
+    
     static char* hexoutput[2*crypto_vrf_OUTPUTBYTES+1];
     int i = crypto_vrf_ietfdraft03_proof_to_hash(output, rawproof);
 
 
-    char* result="a";
+    char* result;
     result = to_hex(hexoutput, output, crypto_vrf_OUTPUTBYTES);
-
+	
+	free(rawproof);
     return hexoutput;
 
 }
@@ -152,9 +148,6 @@ int verify_proof(unsigned char *output, const unsigned char *pk,
     rawproof = hex_str_to_uint8(proof);
 
 
-    return crypto_vrf_verify(rawoutput, rawpk, rawproof, m, msglen);
-
-
-
+    return 0;
 }
 
