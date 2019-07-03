@@ -5,10 +5,7 @@ from utils import *
 from Block import Block
 from hashlib import sha256
 from Message import Message
-import pysnooper
 import time
-import uuid
-import random
 import os
 
 system_sk = b'413a67a03a4da74902bc061429a2a7b63425b55cad6f31ede3e6764c2374c8254265c247c6b2583b2c49a868c63b910181d315646d486e4b193d89a6152bf996'
@@ -63,12 +60,10 @@ class AlgoNode(object):
 		#buffer structure: round:messages
 		self.Block_Proposals_Msg=dict()
 		self.Vote_Msg =dict()
-
 		self.voters=dict()
 		self.vote_buffer=dict()
-
-		self.waiting_Proposal=False
-		self.waiting_block =dict()
+		self.wblock=dict()
+		self.waiting_block =False
 		self.SortForC= dict()
 		self.SortForB=dict()
 		self.Tenative = False
@@ -114,32 +109,26 @@ class AlgoNode(object):
 		if id not in self.peers:
 			self.peers.append(id)
 
-
-
-
-
+	def log_result(self):
+		filename = f'{str(current_round)}roundRecord.txt'
+		file_path = 'RoundStatus/' + filename
+		dirpath = '/Users/yuliu/PycharmProjects/algorandtest/scratch/yliu7/'
+		folder_path = os.path.join(dirpath,file_path)
 
 
 	def FixedGenerator(self):
 
-
-
 		current_round = 1
 		#manual size for committe size
 
-		
 		filename=f'{str(current_round)}roundRecord.txt'
 		file_path = 'RoundStatus/' + filename
-		dirpath='/scratch/yliu7/'
+		dirpath='/Users/yuliu/PycharmProjects/algorandtest/scratch/yliu7/'
 		folder_path = os.path.join(dirpath, file_path)
 
 		roundflag = True
-		start_time = time.time()
-
 		while roundflag:
-			
-			
-			if not self.Tenative and not self.waiting_Proposal:
+			if not self.Tenative and not self.waiting_block:
 				self.Round_start_time[current_round] = self.env.now
 				folder_path = os.path.join(dirpath, file_path)
 				empty_block = self.generate_empty_block(current_round)
@@ -147,61 +136,58 @@ class AlgoNode(object):
 				proposer = self.Sortition(self.sk, current_round, block_proposer, block_proposer_size)
 
 				if proposer:
-					
-					self.SortForB[current_round]=True
-
 					self.propose_block(proposer, current_round)
-
 					print(f'node {self.id} sorted as proposer at time {self.env.now}')
 					#to sendout block system sync useage,can be ignored
 
 				else:
-
 					self.Max_Priority_Proposal[current_round]=empty_block.priority
-					self.SortForB[current_round]=False
-					self.block_candidates[current_round]=empty_block
-
-
+					self.block_candidates[current_round]=[empty_block]
 
 
 				priority_delay = 5000
 				timer = 0
 
 				while timer <priority_delay:
-					timer+=100
-					yield self.env.timeout(100)
+					timer+=1
+					yield self.env.timeout(1)
 
 
 				proposal_waiting_timeout = 60000
-
-
 				timer = 0
+
 
 				max_prio_proposal = empty_block.block_hash
 				max_priority = self.Max_Priority_Proposal[current_round]
 				while not self.check_proposal(max_priority,current_round):
 					if timer<proposal_waiting_timeout:
-						timer+=100
-						yield self.env.timeout(100)
+						timer+=1
+						yield self.env.timeout(1)
 
 				if self.check_proposal(max_priority,current_round):
-					max_prio_proposal=self.block_candidates[current_round].block_hash
+					for block in self.block_candidates[current_round]:
+						if block.priority ==max_priority:
+							max_prio_proposal=block
+
+
+
+
 				maxprio=f'{str(current_round)}roundMaxp.txt'
 				mfile_path = 'RoundStatus/' + maxprio
-				dirpath='/scratch/yliu7/'
+				dirpath='/Users/yuliu/PycharmProjects/algorandtest/scratch/yliu7/'
 				max_path = os.path.join(dirpath, mfile_path)
 				with open(max_path, 'a+') as mf:
 					flag = True
 					if max_priority==empty_block.block_hash:
 						flag=False
-					mf.write(f'{self.id},{current_round},{max_prio_proposal},{flag} \n')
+					mf.write(f'{self.id},{current_round},{max_prio_proposal.block_hash},{flag} \n')
 
 				delay_left = 60000-timer
 
 				ctx = self.get_ctx(current_round)
-				print(f'node finished block download and start ba at {self.env.now}')
+
 				#print(f'node {self.id} real time before enters ba {time2-start_time} and system time {self.env.now}')
-				BA_result = yield self.env.process(self.BA(ctx,current_round,max_prio_proposal,delay_left))
+				BA_result = yield self.env.process(self.BA(ctx,current_round,max_prio_proposal.block_hash,delay_left))
 				print(f'ba result {BA_result[1]}')
 
 
@@ -218,25 +204,23 @@ class AlgoNode(object):
 						print(
 							f'Round {current_round} node {self.id} reaches final with emptyblock cost {self.env.now-self.Round_start_time[current_round]} \n')
 						current_round+=1
-						self.Gossiped_Msg.clear()
-						self.vote_buffer.clear()
-						self.Vote_Msg.clear()
+						self.clean_buffers()
 					else:
 
-						if self.block_candidates[current_round].block_hash==BA_result[1]:
-							self.chain.chain[current_round]=self.block_candidates[current_round]
+						#if self.block_candidates[current_round].block_hash==new_block_hash:
+						newb =  self.fetch_proposal(current_round, new_block_hash)
+						if newb:
+							self.chain.chain[current_round]=newb
 							folder_path = os.path.join(dirpath, file_path)
 							with open(folder_path, 'a+') as f:
 								f.write(
 									f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{new_block_hash},{True} \n')
 							
 							current_round += 1
-							self.Gossiped_Msg.clear()
-							self.vote_buffer.clear()
-							self.Vote_Msg.clear()
+							self.clean_buffers()
 						else:
-
 							self.waiting_block=True
+							self.wblock[current_round]=new_block_hash
 							folder_path = os.path.join(dirpath, file_path)
 							f = open(folder_path, 'a+')
 							f.write(
@@ -254,39 +238,24 @@ class AlgoNode(object):
 
 			elif self.waiting_block:
 
-				yield self.env.timeout(1000)
-				empty_block = self.generate_empty_block(current_round)
-				r = self.CountVotes(ctx, current_round, step=Final_State)
-				if r == empty_block.block_hash:
-					self.chain.chain[current_round]=empty_block
-					folder_path = os.path.join(dirpath, file_path)
-					f = open(folder_path, 'a+')
-					f.write(
-						f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{empty_block.block_hash},{False} \n')
-					f.close()
+				folder_path = os.path.join(dirpath, file_path)
+
+				waiting_hash = self.wblock[current_round]
+				timer = 0
+				while timer<5000 and self.fetch_proposal(current_round,waiting_hash):
+					timer+=10
+					yield self.env.timeout(timer)
+				newb = self.fetch_proposal(current_round,waiting_hash)
+				if newb:
 					self.waiting_block=False
-					current_round+=1
-					self.Gossiped_Msg.clear()
-					self.vote_buffer.clear()
-					self.Vote_Msg.clear()
+					self.chain.chain[current_round]=newb
+
+					with open(folder_path,'a+') as f:
+						f.write(f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{newb.block_hash,}{True}')
+					current_round += 1
+					self.clean_buffers()
 				else:
-					if self.block_candidates[current_round]:
-						if self.block_candidates[current_round].block_hash==r:
-							self.chain.chain[current_round]=self.block_candidates[current_round]
-							self.waiting_block=False
-							folder_path = os.path.join(dirpath, file_path)
-							f = open(folder_path, 'a+')
-							f.write(f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{True} \n')
-							f.close()
-							current_round += 1
-							self.Gossiped_Msg.clear()
-							self.vote_buffer.clear()
-							self.Vote_Msg.clear()
-						else:
-							folder_path = os.path.join(dirpath, file_path)
-							f = open(folder_path, 'a+')
-							f.write(f'Round{current_round},{self.id},finalw,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{True} \n')
-							f.close()
+					continue
 							
 			elif self.Tenative:
 				empty_block=self.generate_empty_block(current_round)
@@ -295,8 +264,8 @@ class AlgoNode(object):
 				step = 0
 				while not self.CountVotes(ctx, current_round, step=Final_State):
 					if step < max_step:
-						step += 100
-						yield self.env.timeout(100)
+						step += 1
+						yield self.env.timeout(1)
 					else:
 						break
 				r = self.CountVotes(ctx, current_round, Final_State)
@@ -311,38 +280,28 @@ class AlgoNode(object):
 					f.close()
 					current_round += 1
 					self.Tenative=False
-					self.Gossiped_Msg.clear()
-					self.vote_buffer.clear()
-					self.Vote_Msg.clear()
+					self.clean_buffers()
 				else:
-					if self.block_candidates[current_round].block_hash == r:
-						self.chain.chain[current_round] = self.block_candidates[current_round]
-						folder_path = os.path.join(dirpath, file_path)
-						f = open(folder_path, 'a+')
-						f.write(
-							f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{True} \n')
-						f.close()
-						current_round += 1
+					newb = self.fetch_proposal(current_round,r)
+					if newb:
 						self.Tenative=False
-						self.Gossiped_Msg.clear()
-						self.vote_buffer.clear()
-						self.Vote_Msg.clear()
+						self.chain.chain[current_round]=newb
+						with open(folder_path,'a+') as f:
+							f.write(f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{newb.block_hash,}{True} \n')
+						current_round+=1
+						self.clean_buffers()
 					else:
-						self.waiting_block = True
 						self.Tenative=False
-						folder_path = os.path.join(dirpath, file_path)
-						f = open(folder_path, 'a+')
+						self.waiting_block=True
+						self.wblock[current_round]=newb.block_hash
 						f.write(
-							f'{current_round},{self.id},finalw,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{False}\n')
-						f.close()
-			if current_round == 10:
+							f'{current_round},{self.id},finalw,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{newb.block_hash,}{True} \n')
+			if current_round == 5:
 
 				roundflag =False
 
-
 	#connect new peers, add pipes to output conn in simpy
 	# Simpy Msg receiver
-
 	def GossipReceiver(self, inpipe):
 
 
@@ -350,9 +309,6 @@ class AlgoNode(object):
 
 
 			msg = yield inpipe.pipe.get()
-
-
-
 			mes_type = msg[0]
 
 			if mes_type == 'b':
@@ -362,11 +318,16 @@ class AlgoNode(object):
 				block_proposal=msg[2]
 				priority = block_proposal.priority
 				#print(f'node has proposale msg at time {self.env.now}')
-				
+
 				if msg_id not in self.Gossiped_Msg:
 					self.Gossiped_Msg.append(msg_id)
 					self.Gossip_Msg(msg)
+
+
 					#currently 1mb block assum 10sec delay
+					if round not in self.block_candidates.keys():
+						self.block_candidates[round]=[]
+
 					if round not in self.Max_Priority_Proposal.keys():
 						# block download delay
 						self.Max_Priority_Proposal[round]=block_proposal.priority
@@ -376,11 +337,11 @@ class AlgoNode(object):
 							timer += 1
 							yield self.env.timeout(1)
 						if block_proposal.priority==self.Max_Priority_Proposal[round]:
-							self.block_candidates[round] = block_proposal
-							#self.Gossiped_Msg.append(msg_id)
-							#self.Gossip_Msg(msg)
 
-					if priority==self.Max_Priority_Proposal[round]:
+							self.block_candidates[round].append(block_proposal)
+
+
+					if priority==self.Max_Priority_Proposal[round] or priority>self.Max_Priority_Proposal[round]:
 						#block download delay
 						delay = self.block_delay
 						timer = 0
@@ -388,16 +349,8 @@ class AlgoNode(object):
 							timer += 1
 							yield self.env.timeout(1)
 
-
 						if block_proposal.priority==self.Max_Priority_Proposal[round]:
-							self.block_candidates[round] = block_proposal
-							#self.Gossiped_Msg.append(msg_id)
-							#self.Gossip_Msg(msg)
-
-
-					#print(f'node {self.id} finish downloading block at time{self.env.now}')
-
-
+							self.block_candidates[round].append(block_proposal)
 
 					else:
 						continue
@@ -475,18 +428,6 @@ class AlgoNode(object):
 
 					continue
 
-
-
-
-
-		#construct votes into gossip messages
-		#check if user is in committer
-		#if true, construct votes and gossip the message
-
-
-	#count committe votes in the network,
-	# time_out is the lambada parameter to control waiting time
-	# input argument to be finished
 
 	def CountVotes(self,ctx, round, step, committe_size= None, step_thresh=None,timeout_lambda=2):
 
@@ -827,17 +768,14 @@ class AlgoNode(object):
 		new_block.add_priority(priority)
 		# self is proposer then add hihest proority block into self block block_candidates
 
-		self.block_candidates[current_round]=new_block
+		self.block_candidates[current_round]=[new_block]
 		filename=f'{str(current_round)}blockproposals.txt'
 		file_path = 'RoundStatus/' + filename
-		dirpath='/scratch/yliu7/'
+		dirpath='/Users/yuliu/PycharmProjects/algorandtest/scratch/yliu7/'
 		folder_path = os.path.join(dirpath, file_path)
 		with open(folder_path,'a+') as f:
 			f.write(f'{new_block.block_hash}\n')
 
-		# construc max pritority message
-		block_message = Message(self.pk, current_round, self.tokens, new_block.block_hash, entire_block=new_block,
-		                        vrf_proof=proof, vrf_hash=hash, priority=priority)
 
 		proposal_msg = ('b', current_round, new_block)
 		priority_msg = ('p',current_round, new_block.block_hash,priority)
@@ -924,7 +862,7 @@ class AlgoNode(object):
 		js, indexes = self.sub_users(self.tokens, probs, hash)
 		dirpath='/scratch/yliu7/'
 		filename = f'Round{str(round)}sort.txt'
-		file_path = 'SortRes/' + filename
+		file_path = '/Users/yuliu/PycharmProjects/algorandtest/SortRes/' + filename
 		path = os.path.join(dirpath, file_path)
 		
 		if js==0:
@@ -943,6 +881,7 @@ class AlgoNode(object):
 	def get_ctx(self,current_round):
 
 		return (self.get_seed(current_round), self.tokens, self.chain.chain[current_round-1].block_hash)
+
 
 	#current ongoing round shoud be chain rounds+1
 	#chain stores valid
@@ -1007,10 +946,10 @@ class AlgoNode(object):
 
 	def check_proposal(self,max_p,round):
 
-		if self.block_candidates[round].priority==max_p:
-			return True
-		else:
-			return False
+		for block in self.block_candidates[round]:
+			if block.priority == max_p:
+				return True
+		return False
 
 	def get_seed(self,current_round):
 
@@ -1060,6 +999,16 @@ class AlgoNode(object):
 			return j, indexes_of_j
 		return j, indexes_of_j
 
+	def fetch_proposal(self,round,ba_result):
+		for block in self.block_candidates[round]:
+			if block.block_hash == ba_result:
+				return block
+		return False
+	def clean_buffers(self):
+		self.block_candidates.clear()
+		self.Gossiped_Msg.clear()
+		self.vote_buffer.clear()
+		self.Vote_Msg.clear()
 
 	#  sort the max priority subuser of user
 	def max_priority(self, block_hash, subuser_indexes):
