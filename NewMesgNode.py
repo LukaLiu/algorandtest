@@ -16,12 +16,12 @@ system_pk = b'4265c247c6b2583b2c49a868c63b910181d315646d486e4b193d89a6152bf996'
 NULL_HASH = 0x00.to_bytes(32, byteorder='little')
 block_proposer = 'b'
 committe_member = 'c'
-total_tokens = 100000
+
 BA_Thresh=2/3
 Final_State = 'final'
 Tenative_State = 'tenative'
 proposer_probs = 50/10000
-block_proposer_size = 70
+block_proposer_size = 26
 time_out_block_proposal=2
 time_out_step = 5
 Reduction_one=1
@@ -127,21 +127,21 @@ class AlgoNode(object):
 		current_round = 1
 		#manual size for committe size
 
-
+		
+		filename=f'{str(current_round)}roundRecord.txt'
+		file_path = 'RoundStatus/' + filename
+		dirpath='/scratch/yliu7/'
+		folder_path = os.path.join(dirpath, file_path)
 
 		roundflag = True
 		start_time = time.time()
 
 		while roundflag:
-			filename=f'{str(current_round)}roundRecord.txt'
-			file_path = 'RoundStatus/' + filename
-			dirpath = os.path.dirname(os.path.abspath(__file__))
-			folder_path = os.path.join(dirpath, file_path)
-			f = open(folder_path, 'a+')
+			
 			
 			if not self.Tenative and not self.waiting_Proposal:
 				self.Round_start_time[current_round] = self.env.now
-
+				folder_path = os.path.join(dirpath, file_path)
 				empty_block = self.generate_empty_block(current_round)
 
 				proposer = self.Sortition(self.sk, current_round, block_proposer, block_proposer_size)
@@ -168,10 +168,9 @@ class AlgoNode(object):
 				timer = 0
 
 				while timer <priority_delay:
-					timer+=1
-					yield self.env.timeout(1)
+					timer+=100
+					yield self.env.timeout(100)
 
-				print(f'node {self.id} finish priority wait')
 
 				proposal_waiting_timeout = 60000
 
@@ -182,20 +181,20 @@ class AlgoNode(object):
 				max_priority = self.Max_Priority_Proposal[current_round]
 				while not self.check_proposal(max_priority,current_round):
 					if timer<proposal_waiting_timeout:
-						timer+=1
-						yield self.env.timeout(1)
+						timer+=100
+						yield self.env.timeout(100)
 
 				if self.check_proposal(max_priority,current_round):
 					max_prio_proposal=self.block_candidates[current_round].block_hash
 				maxprio=f'{str(current_round)}roundMaxp.txt'
-				file_path = 'RoundStatus/' + maxprio
-				dirpath = os.path.dirname(os.path.abspath(__file__))
-				max_path = os.path.join(dirpath, file_path)
+				mfile_path = 'RoundStatus/' + maxprio
+				dirpath='/scratch/yliu7/'
+				max_path = os.path.join(dirpath, mfile_path)
 				with open(max_path, 'a+') as mf:
 					flag = True
 					if max_priority==empty_block.block_hash:
 						flag=False
-					mf.write(f'{self.id},{current_round},{max_priority},{flag} \n')
+					mf.write(f'{self.id},{current_round},{max_prio_proposal},{flag} \n')
 
 				delay_left = 60000-timer
 
@@ -212,24 +211,34 @@ class AlgoNode(object):
 
 					if new_block_hash==empty_block.block_hash:
 						self.chain.chain[current_round]=empty_block
-
-						f.write(f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{empty_block.block_hash},{False} \n')
-						f.close()
+						with open(folder_path, 'a+') as f:
+							f.write(f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{empty_block.block_hash},{False} \n')
+						
 						
 						print(
 							f'Round {current_round} node {self.id} reaches final with emptyblock cost {self.env.now-self.Round_start_time[current_round]} \n')
 						current_round+=1
+						self.Gossiped_Msg.clear()
+						self.vote_buffer.clear()
+						self.Vote_Msg.clear()
 					else:
 
 						if self.block_candidates[current_round].block_hash==BA_result[1]:
 							self.chain.chain[current_round]=self.block_candidates[current_round]
-							f.write(
-								f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{new_block_hash},{True} \n')
-							f.close()
+							folder_path = os.path.join(dirpath, file_path)
+							with open(folder_path, 'a+') as f:
+								f.write(
+									f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{new_block_hash},{True} \n')
+							
 							current_round += 1
+							self.Gossiped_Msg.clear()
+							self.vote_buffer.clear()
+							self.Vote_Msg.clear()
 						else:
 
 							self.waiting_block=True
+							folder_path = os.path.join(dirpath, file_path)
+							f = open(folder_path, 'a+')
 							f.write(
 								f'{current_round},{self.id},finalw,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{new_block_hash},{True} \n')
 							f.close()
@@ -237,32 +246,45 @@ class AlgoNode(object):
 				elif BA_result[0] == Tenative_State:
 					self.Tenative=True
 					bhash =BA_result[1]
-					
+					folder_path = os.path.join(dirpath, file_path)
+					f = open(folder_path, 'a+')
 					f.write(f'{current_round},{self.id},tenative,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{bhash},{(not bhash==empty_block.block_hash)} \n')
 					f.close()
 					print(f'node {self.id} reches tenative state and needs more count result')
 
 			elif self.waiting_block:
 
-				yield self.env.timeout(100)
+				yield self.env.timeout(1000)
 				empty_block = self.generate_empty_block(current_round)
 				r = self.CountVotes(ctx, current_round, step=Final_State)
 				if r == empty_block.block_hash:
 					self.chain.chain[current_round]=empty_block
+					folder_path = os.path.join(dirpath, file_path)
+					f = open(folder_path, 'a+')
 					f.write(
 						f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{empty_block.block_hash},{False} \n')
 					f.close()
+					self.waiting_block=False
 					current_round+=1
+					self.Gossiped_Msg.clear()
+					self.vote_buffer.clear()
+					self.Vote_Msg.clear()
 				else:
 					if self.block_candidates[current_round]:
 						if self.block_candidates[current_round].block_hash==r:
 							self.chain.chain[current_round]=self.block_candidates[current_round]
 							self.waiting_block=False
+							folder_path = os.path.join(dirpath, file_path)
+							f = open(folder_path, 'a+')
 							f.write(f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{True} \n')
 							f.close()
 							current_round += 1
+							self.Gossiped_Msg.clear()
+							self.vote_buffer.clear()
+							self.Vote_Msg.clear()
 						else:
-
+							folder_path = os.path.join(dirpath, file_path)
+							f = open(folder_path, 'a+')
 							f.write(f'Round{current_round},{self.id},finalw,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{True} \n')
 							f.close()
 							
@@ -273,34 +295,47 @@ class AlgoNode(object):
 				step = 0
 				while not self.CountVotes(ctx, current_round, step=Final_State):
 					if step < max_step:
-						step += 1
-						yield self.env.timeout(step)
+						step += 100
+						yield self.env.timeout(100)
 					else:
 						break
 				r = self.CountVotes(ctx, current_round, Final_State)
 
 				if r==empty_block.block_hash:
 					self.chain.chain[current_round]=empty_block
-
+					folder_path = os.path.join(dirpath, file_path)
+					f = open(folder_path, 'a+')
 					f.write(
 						f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{empty_block.block_hash},{False} \n')
 
 					f.close()
 					current_round += 1
+					self.Tenative=False
+					self.Gossiped_Msg.clear()
+					self.vote_buffer.clear()
+					self.Vote_Msg.clear()
 				else:
 					if self.block_candidates[current_round].block_hash == r:
 						self.chain.chain[current_round] = self.block_candidates[current_round]
-
+						folder_path = os.path.join(dirpath, file_path)
+						f = open(folder_path, 'a+')
 						f.write(
 							f'{current_round},{self.id},final,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{True} \n')
 						f.close()
 						current_round += 1
+						self.Tenative=False
+						self.Gossiped_Msg.clear()
+						self.vote_buffer.clear()
+						self.Vote_Msg.clear()
 					else:
 						self.waiting_block = True
+						self.Tenative=False
+						folder_path = os.path.join(dirpath, file_path)
+						f = open(folder_path, 'a+')
 						f.write(
 							f'{current_round},{self.id},finalw,{self.env.now},{self.env.now-self.Round_start_time[current_round]},{r},{False}\n')
 						f.close()
-			if current_round == 5:
+			if current_round == 10:
 
 				roundflag =False
 
@@ -327,15 +362,11 @@ class AlgoNode(object):
 				block_proposal=msg[2]
 				priority = block_proposal.priority
 				#print(f'node has proposale msg at time {self.env.now}')
-
+				
 				if msg_id not in self.Gossiped_Msg:
+					self.Gossiped_Msg.append(msg_id)
+					self.Gossip_Msg(msg)
 					#currently 1mb block assum 10sec delay
-
-					#print(f'node {self.id}recive block at {self.env.now} and start downloading block')
-
-
-
-
 					if round not in self.Max_Priority_Proposal.keys():
 						# block download delay
 						self.Max_Priority_Proposal[round]=block_proposal.priority
@@ -346,8 +377,8 @@ class AlgoNode(object):
 							yield self.env.timeout(1)
 						if block_proposal.priority==self.Max_Priority_Proposal[round]:
 							self.block_candidates[round] = block_proposal
-							self.Gossiped_Msg.append(msg_id)
-							self.Gossip_Msg(msg)
+							#self.Gossiped_Msg.append(msg_id)
+							#self.Gossip_Msg(msg)
 
 					if priority==self.Max_Priority_Proposal[round]:
 						#block download delay
@@ -360,8 +391,8 @@ class AlgoNode(object):
 
 						if block_proposal.priority==self.Max_Priority_Proposal[round]:
 							self.block_candidates[round] = block_proposal
-							self.Gossiped_Msg.append(msg_id)
-							self.Gossip_Msg(msg)
+							#self.Gossiped_Msg.append(msg_id)
+							#self.Gossip_Msg(msg)
 
 
 					#print(f'node {self.id} finish downloading block at time{self.env.now}')
@@ -384,27 +415,27 @@ class AlgoNode(object):
 				msg_id = msg[0]+str(round)+block_hash+priority
 
 				if msg_id not in self.Gossiped_Msg:
-
+					self.Gossiped_Msg.append(msg_id)
 					delay = inpipe.delay
 					yield self.env.timeout(1)
 					timer = 0
 					while timer < delay-1:
 						timer+=1
 						yield self.env.timeout(1)
-
+					
 					if round not in self.Max_Priority_Proposal.keys():
 						self.Max_Priority_Proposal[round] = None
 
 					if not self.Max_Priority_Proposal[round]:
 
 						self.Max_Priority_Proposal[round]=priority
-						self.Gossiped_Msg.append(msg_id)
+						
 						self.Gossip_Msg(msg)
 
 					else:
 						if priority>self.Max_Priority_Proposal[round]:
 							self.Max_Priority_Proposal[round]=priority
-							self.Gossiped_Msg.append(msg_id)
+							
 							self.Gossip_Msg(msg)
 						else:
 							continue
@@ -418,10 +449,10 @@ class AlgoNode(object):
 
 
 				key = msg[1]
-				msg_id = str(key[0])+str(key[1])+msg[2].decode('utf-8')
+				msg_id = msg[0]+str(key[0])+str(key[1])+msg[2].decode('utf-8')+str(msg[4])
 
 				if msg_id not in self.Gossiped_Msg:
-
+					self.Gossiped_Msg.append(msg_id)
 					delay = inpipe.delay
 
 
@@ -437,10 +468,7 @@ class AlgoNode(object):
 
 					self.Vote_Msg.setdefault(key, []).append(vote_info)
 
-					self.Gossiped_Msg.append(msg_id)
-
-
-					#print(f'node {self.id} goosip vote for {key} at time {self.env.now}')
+					
 					self.Gossip_Msg(msg)
 
 				else:
@@ -471,26 +499,28 @@ class AlgoNode(object):
 			key = (round, step)
 
 			if step==Final_State:
-				thresh_vote = ba_thresh * 10000
+				thresh_vote = ba_thresh * 500
 			else:
 				thresh_vote = ba_thresh*self.manual_committee_size
-			test_thresh_vote=10
-			for msg in self.Vote_Msg[key]:
-
-
-				voter = msg[0]
-				block_hash=msg[1]
-				votes = msg[2]
-
-				if self.store_voters(round,step,votes,voter):
-
-					self.store_vote(round,step, block_hash,votes)
-					total = self.vote_buffer[key][block_hash]
-					if total > thresh_vote:
-						print(f'{step}votes succeed with {total}')
-						return block_hash
-
-			return False
+			
+			if self.Vote_Msg[key]:
+				
+				nums = len(self.Vote_Msg[key])
+				for n in range(0,nums):
+					msg = self.Vote_Msg[key].pop()
+					voter = msg[0]
+					block_hash=msg[1]
+					votes=msg[2]
+			
+					if self.store_voters(round,step,votes,voter):
+						self.store_vote(round,step,block_hash,votes)
+						if self.vote_buffer[key][block_hash]>thresh_vote:
+							return block_hash
+				return False
+			
+			else:
+				return False
+			
 
 		except KeyError as e:
 			#print(f'node {self.id} doesnot recived any votes msg at time {self.env.now} with error {e}')
@@ -515,8 +545,8 @@ class AlgoNode(object):
 		step = 0
 		while not self.CountVotes(ctx, current_round, step=Final_State):
 			if step < max_step:
-				step += 1
-				yield self.env.timeout(step)
+				step += 100
+				yield self.env.timeout(100)
 
 
 			else:
@@ -543,15 +573,15 @@ class AlgoNode(object):
 
 		#threshnum = self.manual_committee_size
 		self.Committe_vote(ctx, current_round, reduction_step_one, self.manual_committee_size, block_hash)
-		yield self.env.timeout(0.1)
+		yield self.env.timeout(10)
 		### simulation waiting
 		max_step = 20000+delays
 		step = 0
 
 		while not self.CountVotes(ctx, current_round, reduction_step_one):
 			if step < max_step:
-				step += 1
-				yield self.env.timeout(1)
+				step += 100
+				yield self.env.timeout(100)
 			else:
 				break
 		###end of waiting code
@@ -561,7 +591,7 @@ class AlgoNode(object):
 		step_one_result = self.CountVotes(ctx, current_round, step=reduction_step_one,
 		                                   committe_size=self.manual_committee_size)
 		print(f'with delay, node {self.id} finished recution1 count at time {self.env.now} ms')
-		print(f'result is {step_one_result}')
+		
 
 
 		#start of reduction 2
@@ -581,13 +611,13 @@ class AlgoNode(object):
 			print(f'reduction with none empty')
 			self.Committe_vote(ctx, current_round, reduction_step_two, self.manual_committee_size, step_one_result)
 
-		yield self.env.timeout(0.1)
+		yield self.env.timeout(10)
 
 		step = 0
 		while not self.CountVotes(ctx, current_round, step=reduction_step_two):
 			if step < max_step:
-				step += 1
-				yield self.env.timeout(1)
+				step += 100
+				yield self.env.timeout(100)
 
 
 			else:
@@ -622,13 +652,13 @@ class AlgoNode(object):
 			step_prefix = 'bba'
 			#yield self.env.process(self.Committe_vote(ctx, round, step_prefix+str(step), manual_threshold, r))
 			self.Committe_vote(ctx, round, step_prefix + str(step), manual_threshold, r)
-			yield self.env.timeout(1)
+			yield self.env.timeout(10)
 			### simulation waiting
 			s=0
 			while not self.CountVotes(ctx, round, step_prefix + str(step)):
 				if s < max_s:
-					s += 1
-					yield self.env.timeout(1)
+					s += 100
+					yield self.env.timeout(100)
 
 
 				else:
@@ -661,14 +691,14 @@ class AlgoNode(object):
 			self.Committe_vote(ctx, round, step_prefix + str(step), manual_threshold, r)
 
 
-			yield self.env.timeout(1)
+			yield self.env.timeout(10)
 
 			### simulation waiting
 			s=0
 			while not self.CountVotes(ctx, round, step_prefix + str(step)):
 				if s < max_s:
-					s += 1
-					yield self.env.timeout(1)
+					s += 100
+					yield self.env.timeout(100)
 
 
 				else:
@@ -692,14 +722,14 @@ class AlgoNode(object):
 
 			#yield self.env.process(self.Committe_vote(ctx, round,step_prefix+str(step),manual_threshold,r))
 			self.Committe_vote(ctx, round, step_prefix + str(step), manual_threshold, r)
-			yield self.env.timeout(1)
+			yield self.env.timeout(10)
 			#r = self.CountVotes(ctx,round,step_prefix+str(step),self.manual_committee_size)
 			### simulation waiting
 			s=0
 			while not self.CountVotes(ctx, round, step_prefix + str(step)):
 				if s < max_step:
-					s += 1
-					yield self.env.timeout(1)
+					s += 100
+					yield self.env.timeout(100)
 
 
 				else:
@@ -742,28 +772,17 @@ class AlgoNode(object):
 	def store_voters(self,round,step, votes, voter):
 
 		key = (round,step)
-
-		if key in self.voters.keys():
-			if self.voters[key]:
-				if voter not in self.voters[key]:
-					self.voters[key].append(voter)
-					return True
-				else:
-					return False
-			else:
-				self.voters[key]=[voter]
-				return True
-		else:
-			self.voters[key]=[voter]
-			return True
+		self.voters.setdefault(key,set()).add(voter)
+		
+		return True
+		
 	def Committe_vote(self, ctx, round, step, threshold, value):
 
 		seed, user_tokens, prev_blockhash= ctx
 
 		role = committe_member+str(round)+str(step)
 		if step==Final_State:
-		 	threshold=10000
-
+		 	threshold=500
 		sort_result = self.Sortition(self.sk, round, role, threshold)
 	
 		if sort_result:
@@ -809,13 +828,18 @@ class AlgoNode(object):
 		# self is proposer then add hihest proority block into self block block_candidates
 
 		self.block_candidates[current_round]=new_block
-
+		filename=f'{str(current_round)}blockproposals.txt'
+		file_path = 'RoundStatus/' + filename
+		dirpath='/scratch/yliu7/'
+		folder_path = os.path.join(dirpath, file_path)
+		with open(folder_path,'a+') as f:
+			f.write(f'{new_block.block_hash}\n')
 
 		# construc max pritority message
 		block_message = Message(self.pk, current_round, self.tokens, new_block.block_hash, entire_block=new_block,
 		                        vrf_proof=proof, vrf_hash=hash, priority=priority)
 
-		proposal_msg = ('b', current_round, block_message)
+		proposal_msg = ('b', current_round, new_block)
 		priority_msg = ('p',current_round, new_block.block_hash,priority)
 		self.Max_Priority_Proposal[current_round]=priority
 		msg_id = 'b' + str(current_round) + new_block.block_hash + priority
@@ -898,17 +922,17 @@ class AlgoNode(object):
 
 		#get the subuser number and indexes
 		js, indexes = self.sub_users(self.tokens, probs, hash)
-		dirpath = os.path.dirname(os.path.abspath(__file__))
+		dirpath='/scratch/yliu7/'
 		filename = f'Round{str(round)}sort.txt'
 		file_path = 'SortRes/' + filename
-		folder_path = os.path.join(dirpath, file_path)
+		path = os.path.join(dirpath, file_path)
 		
 		if js==0:
 			
 			return False
 		else:
 			result =(proof,hash,js,indexes)
-			with open(folder_path,"a+") as f:
+			with open(path,"a+") as f:
 				f.write(f'{self.id},{round},{role},{js} \n')
 			return result
 		# if role == block_proposer:elif role == committe_member:
